@@ -6,6 +6,7 @@ from pathlib import Path
 import os
 import logging
 import time
+import asyncio
 from groq import Groq
 from livekit import api
 from contextlib import asynccontextmanager
@@ -36,7 +37,6 @@ else:
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
-from contextlib import asynccontextmanager
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
@@ -325,7 +325,8 @@ async def ai_voice(req: VoiceRequest):
                 max_tokens=200,
             )
             reply = chat_completion.choices[0].message.content
-        audio = synthesize_speech(reply)
+        # Offload blocking TTS generation to a thread to keep the event loop responsive
+        audio = await asyncio.to_thread(synthesize_speech, reply)
         return StreamingResponse(io.BytesIO(audio), media_type="audio/wav")
     except Exception as e:
         logger.error(f"AI voice error: {e}")
