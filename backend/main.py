@@ -6,6 +6,7 @@ from pathlib import Path
 import os
 import logging
 import time
+import asyncio
 from groq import Groq
 from livekit import api
 from contextlib import asynccontextmanager
@@ -325,7 +326,8 @@ async def ai_voice(req: VoiceRequest):
                 max_tokens=200,
             )
             reply = chat_completion.choices[0].message.content
-        audio = synthesize_speech(reply)
+        # Offload blocking TTS to a thread to avoid blocking the event loop
+        audio = await asyncio.to_thread(synthesize_speech, reply)
         return StreamingResponse(io.BytesIO(audio), media_type="audio/wav")
     except Exception as e:
         logger.error(f"AI voice error: {e}")
