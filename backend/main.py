@@ -6,6 +6,7 @@ from pathlib import Path
 import os
 import logging
 import time
+import asyncio
 from groq import Groq
 from livekit import api
 from contextlib import asynccontextmanager
@@ -36,12 +37,19 @@ else:
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
+# Global lock for TTS to prevent concurrent access to pyttsx3
+tts_lock = None
+
 from contextlib import asynccontextmanager
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     """Manage application lifespan events with runtime env validation."""
     logger.info("Starting Warm Transfer API")
+
+    # Initialize global TTS lock
+    global tts_lock
+    tts_lock = asyncio.Lock()
 
     # (Re)load env vars at runtime so missing vars give clear runtime error
     global LIVEKIT_API_KEY, LIVEKIT_API_SECRET, LIVEKIT_URL, GROQ_API_KEY
@@ -325,7 +333,14 @@ async def ai_voice(req: VoiceRequest):
                 max_tokens=200,
             )
             reply = chat_completion.choices[0].message.content
-        audio = synthesize_speech(reply)
+        # Offload blocking TTS to a thread to avoid blocking the event loop
+        # Use a lock to ensure thread safety for pyttsx3 (not thread-safe)
+        global tts_lock
+        if tts_lock is None:
+            tts_lock = asyncio.Lock()  # Fallback
+
+        async with tts_lock:
+            audio = await asyncio.to_thread(synthesize_speech, reply)
         return StreamingResponse(io.BytesIO(audio), media_type="audio/wav")
     except Exception as e:
         logger.error(f"AI voice error: {e}")
