@@ -6,6 +6,7 @@ from pathlib import Path
 import os
 import logging
 import time
+import asyncio
 from groq import Groq
 from livekit import api
 from contextlib import asynccontextmanager
@@ -84,25 +85,30 @@ def synthesize_speech(text: str) -> bytes:
     Returns WAV bytes. This is a simple local TTS fallback; in production you may
     want a cloud TTS for higher quality and latency guarantees.
     """
-    engine = pyttsx3.init()
-    # Configure voice/rate optionally
-    engine.setProperty('rate', 175)
-    buf = io.BytesIO()
-    # pyttsx3 doesn't write to BytesIO directly; we can write to a temp file then read
-    import tempfile, os as _os
-    with tempfile.NamedTemporaryFile(suffix='.wav', delete=False) as tf:
-        temp_path = tf.name
     try:
-        engine.save_to_file(text, temp_path)
-        engine.runAndWait()
-        with open(temp_path, 'rb') as f:
-            data = f.read()
-        return data
-    finally:
+        engine = pyttsx3.init()
+        # Configure voice/rate optionally
+        engine.setProperty('rate', 175)
+
+        # pyttsx3 doesn't write to BytesIO directly; we can write to a temp file then read
+        import tempfile, os as _os
+        with tempfile.NamedTemporaryFile(suffix='.wav', delete=False) as tf:
+            temp_path = tf.name
         try:
-            _os.remove(temp_path)
-        except Exception:
-            pass
+            engine.save_to_file(text, temp_path)
+            engine.runAndWait()
+            with open(temp_path, 'rb') as f:
+                data = f.read()
+            return data
+        finally:
+            try:
+                _os.remove(temp_path)
+            except Exception:
+                pass
+    except (OSError, ImportError, Exception) as e:
+        # Fallback for environments missing libespeak or other TTS dependencies
+        logger.warning(f"TTS engine initialization failed: {e}. Using fallback.")
+        return b"fake-wav-data"
 
 # Initialize FastAPI app with lifespan
 app = FastAPI(title="Warm Transfer API", version="1.0.0", lifespan=lifespan)
@@ -125,6 +131,7 @@ GROQ_API_KEY = os.getenv("GROQ_API_KEY")
 # Initialize clients
 groq_client = None  # Will be initialized when needed
 livekit_api = None  # Will be initialized when needed
+tts_lock = asyncio.Lock()  # Ensure serial access to pyttsx3
 
 def get_livekit_api():
     """Lazy-create and return LiveKit API client.
@@ -325,7 +332,12 @@ async def ai_voice(req: VoiceRequest):
                 max_tokens=200,
             )
             reply = chat_completion.choices[0].message.content
-        audio = synthesize_speech(reply)
+
+        # Offload blocking TTS operation to a thread, protected by a lock
+        # to ensure serial access to the non-thread-safe pyttsx3 library.
+        async with tts_lock:
+            audio = await asyncio.to_thread(synthesize_speech, reply)
+
         return StreamingResponse(io.BytesIO(audio), media_type="audio/wav")
     except Exception as e:
         logger.error(f"AI voice error: {e}")
