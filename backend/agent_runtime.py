@@ -184,73 +184,68 @@ class AgentSession:
         except Exception:
             logger.error("livekit.rtc not available; cannot speak")
             return
-        # Use the same offline pyttsx3 TTS to generate a WAV file
-        import pyttsx3
-        engine = pyttsx3.init()
-        engine.setProperty('rate', 175)
-        with tempfile.NamedTemporaryFile(suffix='.wav', delete=False) as tf:
-            wav_path = tf.name
         try:
-            engine.save_to_file(text, wav_path)
-            engine.runAndWait()
+            try:
+                from . import tts
+            except ImportError:
+                import tts
+
+            # Use async TTS from tts.py
+            wav_bytes = await tts.synthesize_speech(text)
+
             # Read WAV and stream to 48kHz mono float32/pcm16 frames
-            with wave.open(wav_path, 'rb') as wf:
+            with wave.open(io.BytesIO(wav_bytes), 'rb') as wf:
                 src_rate = wf.getframerate()
                 src_channels = wf.getnchannels()
                 sampwidth = wf.getsampwidth()
                 frames = wf.readframes(wf.getnframes())
 
-            # Convert to numpy int16
-            if sampwidth == 2:
-                audio = np.frombuffer(frames, dtype=np.int16)
-            elif sampwidth == 1:
-                # 8-bit unsigned to int16
-                audio = (np.frombuffer(frames, dtype=np.uint8).astype(np.int16) - 128) << 8
-            else:
-                # Fallback: assume 16-bit
-                audio = np.frombuffer(frames, dtype=np.int16)
+                # Convert to numpy int16
+                if sampwidth == 2:
+                    audio = np.frombuffer(frames, dtype=np.int16)
+                elif sampwidth == 1:
+                    # 8-bit unsigned to int16
+                    audio = (np.frombuffer(frames, dtype=np.uint8).astype(np.int16) - 128) << 8
+                else:
+                    # Fallback: assume 16-bit
+                    audio = np.frombuffer(frames, dtype=np.int16)
 
-            # If stereo, take mono by averaging channels
-            if src_channels == 2:
-                audio = audio.reshape(-1, 2).mean(axis=1).astype(np.int16)
+                # If stereo, take mono by averaging channels
+                if src_channels == 2:
+                    audio = audio.reshape(-1, 2).mean(axis=1).astype(np.int16)
 
-            # Resample to 48000 Hz if needed
-            target_sr = 48000
-            if src_rate != target_sr:
-                # Simple linear resample
-                duration = audio.shape[0] / src_rate
-                target_len = int(duration * target_sr)
-                x_old = np.linspace(0, duration, num=audio.shape[0], endpoint=False)
-                x_new = np.linspace(0, duration, num=target_len, endpoint=False)
-                audio = np.interp(x_new, x_old, audio.astype(np.float32)).astype(np.int16)
+                # Resample to 48000 Hz if needed
+                target_sr = 48000
+                if src_rate != target_sr:
+                    # Simple linear resample
+                    duration = audio.shape[0] / src_rate
+                    target_len = int(duration * target_sr)
+                    x_old = np.linspace(0, duration, num=audio.shape[0], endpoint=False)
+                    x_new = np.linspace(0, duration, num=target_len, endpoint=False)
+                    audio = np.interp(x_new, x_old, audio.astype(np.float32)).astype(np.int16)
 
-            # Chunk into ~20ms frames (960 samples at 48kHz)
-            frame_size = 960
-            idx = 0
-            while idx < len(audio) and self.running:
-                chunk = audio[idx:idx+frame_size]
-                if len(chunk) < frame_size:
-                    pad = np.zeros(frame_size - len(chunk), dtype=np.int16)
-                    chunk = np.concatenate([chunk, pad])
-                # Push to LiveKit audio source
-                frame = _rtc.AudioFrame(
-                    data=chunk.tobytes(),
-                    sample_rate=target_sr,
-                    num_channels=1,
-                    samples_per_channel=len(chunk),
-                )
-                res = self._audio_source.capture_frame(frame)
-                if asyncio.iscoroutine(res):
-                    await res
-                idx += frame_size
-                await asyncio.sleep(0.02)
+                # Chunk into ~20ms frames (960 samples at 48kHz)
+                frame_size = 960
+                idx = 0
+                while idx < len(audio) and self.running:
+                    chunk = audio[idx:idx+frame_size]
+                    if len(chunk) < frame_size:
+                        pad = np.zeros(frame_size - len(chunk), dtype=np.int16)
+                        chunk = np.concatenate([chunk, pad])
+                    # Push to LiveKit audio source
+                    frame = _rtc.AudioFrame(
+                        data=chunk.tobytes(),
+                        sample_rate=target_sr,
+                        num_channels=1,
+                        samples_per_channel=len(chunk),
+                    )
+                    res = self._audio_source.capture_frame(frame)
+                    if asyncio.iscoroutine(res):
+                        await res
+                    idx += frame_size
+                    await asyncio.sleep(0.02)
         except Exception as e:
             logger.error(f"Agent speak error: {e}")
-        finally:
-            try:
-                os.remove(wav_path)
-            except Exception:
-                pass
 
 
 class AgentManager:

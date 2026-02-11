@@ -18,7 +18,11 @@ except Exception:  # pragma: no cover
 
 from fastapi.responses import StreamingResponse
 import io
-import pyttsx3
+try:
+    from . import tts
+except ImportError:
+    import tts
+
 try:
     # local import for agent runtime manager
     from .agent_runtime import manager as agent_manager  # type: ignore
@@ -77,32 +81,6 @@ async def lifespan(app: FastAPI):
             logger.info("Closed LiveKit API client")
         except Exception as e:
             logger.warning(f"Error closing LiveKit API client: {e}")
-
-def synthesize_speech(text: str) -> bytes:
-    """Synthesize speech locally using pyttsx3 (offline).
-
-    Returns WAV bytes. This is a simple local TTS fallback; in production you may
-    want a cloud TTS for higher quality and latency guarantees.
-    """
-    engine = pyttsx3.init()
-    # Configure voice/rate optionally
-    engine.setProperty('rate', 175)
-    buf = io.BytesIO()
-    # pyttsx3 doesn't write to BytesIO directly; we can write to a temp file then read
-    import tempfile, os as _os
-    with tempfile.NamedTemporaryFile(suffix='.wav', delete=False) as tf:
-        temp_path = tf.name
-    try:
-        engine.save_to_file(text, temp_path)
-        engine.runAndWait()
-        with open(temp_path, 'rb') as f:
-            data = f.read()
-        return data
-    finally:
-        try:
-            _os.remove(temp_path)
-        except Exception:
-            pass
 
 # Initialize FastAPI app with lifespan
 app = FastAPI(title="Warm Transfer API", version="1.0.0", lifespan=lifespan)
@@ -325,7 +303,7 @@ async def ai_voice(req: VoiceRequest):
                 max_tokens=200,
             )
             reply = chat_completion.choices[0].message.content
-        audio = synthesize_speech(reply)
+        audio = await tts.synthesize_speech(reply)
         return StreamingResponse(io.BytesIO(audio), media_type="audio/wav")
     except Exception as e:
         logger.error(f"AI voice error: {e}")
