@@ -1,6 +1,12 @@
 import os
+import sys
+from unittest.mock import MagicMock
 from fastapi.testclient import TestClient
 from dotenv import load_dotenv
+
+# Mock pyttsx3 before importing main app as it requires libespeak which is missing
+mock_pyttsx3 = MagicMock()
+sys.modules["pyttsx3"] = mock_pyttsx3
 
 # Ensure env present for app startup
 os.environ.setdefault("LIVEKIT_API_KEY", "test_key")
