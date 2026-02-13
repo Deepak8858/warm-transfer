@@ -6,6 +6,7 @@ from pathlib import Path
 import os
 import logging
 import time
+import asyncio
 from groq import Groq
 from livekit import api
 from contextlib import asynccontextmanager
@@ -125,6 +126,7 @@ GROQ_API_KEY = os.getenv("GROQ_API_KEY")
 # Initialize clients
 groq_client = None  # Will be initialized when needed
 livekit_api = None  # Will be initialized when needed
+tts_lock = asyncio.Lock()  # Serialize pyttsx3 calls
 
 def get_livekit_api():
     """Lazy-create and return LiveKit API client.
@@ -325,7 +327,8 @@ async def ai_voice(req: VoiceRequest):
                 max_tokens=200,
             )
             reply = chat_completion.choices[0].message.content
-        audio = synthesize_speech(reply)
+        async with tts_lock:
+            audio = await asyncio.to_thread(synthesize_speech, reply)
         return StreamingResponse(io.BytesIO(audio), media_type="audio/wav")
     except Exception as e:
         logger.error(f"AI voice error: {e}")
