@@ -7,7 +7,7 @@ import os
 import logging
 import time
 import asyncio
-from groq import Groq
+from groq import AsyncGroq
 from livekit import api
 from contextlib import asynccontextmanager
 try:
@@ -316,8 +316,9 @@ async def ai_voice(req: VoiceRequest):
         else:
             global groq_client
             if groq_client is None:
-                groq_client = Groq(api_key=GROQ_API_KEY)
-            chat_completion = groq_client.chat.completions.create(
+                groq_client = AsyncGroq(api_key=GROQ_API_KEY)
+            # Await the completion to prevent blocking
+            chat_completion = await groq_client.chat.completions.create(
                 messages=[
                     {"role": "system", "content": "You are a helpful realtime voice assistant."},
                     {"role": "user", "content": req.prompt},
@@ -485,7 +486,8 @@ async def initiate_transfer(request: TransferRequest) -> TransferResponse:
                 "... (Configure GROQ_API_KEY for real AI summary)"
             )
             logger.info("Returning mock summary (Groq not configured or forced)")
-            rec_id = persistence.create_transfer_record(
+            rec_id = await asyncio.to_thread(
+                persistence.create_transfer_record,
                 room_name=request.room_name or "unknown",
                 agent_a=request.agent_a_identity or "unknown",
                 summary=summary,
@@ -502,10 +504,12 @@ async def initiate_transfer(request: TransferRequest) -> TransferResponse:
         # Attempt real Groq call
         global groq_client
         if groq_client is None:
-            groq_client = Groq(api_key=GROQ_API_KEY)
+            # Use AsyncGroq to prevent blocking the event loop during API calls
+            groq_client = AsyncGroq(api_key=GROQ_API_KEY)
 
         try:
-            chat_completion = groq_client.chat.completions.create(
+            # Await the completion to allow other requests to be processed concurrently
+            chat_completion = await groq_client.chat.completions.create(
                 messages=[
                     {
                         "role": "system",
@@ -525,7 +529,9 @@ async def initiate_transfer(request: TransferRequest) -> TransferResponse:
             )
             summary = chat_completion.choices[0].message.content
             logger.info("Generated Groq summary for transfer")
-            rec_id = persistence.create_transfer_record(
+            # Offload blocking SQLite write to a thread
+            rec_id = await asyncio.to_thread(
+                persistence.create_transfer_record,
                 room_name=request.room_name or "unknown",
                 agent_a=request.agent_a_identity or "unknown",
                 summary=summary,
@@ -544,7 +550,8 @@ async def initiate_transfer(request: TransferRequest) -> TransferResponse:
                 "Mock Summary (fallback due to Groq error): "
                 f"{request.call_context[:120]}"[:120] + "..."
             )
-            rec_id = persistence.create_transfer_record(
+            rec_id = await asyncio.to_thread(
+                persistence.create_transfer_record,
                 room_name=request.room_name or "unknown",
                 agent_a=request.agent_a_identity or "unknown",
                 summary=fallback,
@@ -577,7 +584,7 @@ async def complete_transfer(request: CompleteTransferRequest) -> SuccessResponse
             # Optionally update agent_b for persisted record
             if request.transfer_id:
                 try:
-                    updated = persistence.set_agent_b(request.transfer_id, request.agent_b_identity)
+                    updated = await asyncio.to_thread(persistence.set_agent_b, request.transfer_id, request.agent_b_identity)
                     if updated:
                         logger.info(f"Updated transfer {request.transfer_id} with agent_b {request.agent_b_identity}")
                 except Exception as e:
@@ -601,7 +608,8 @@ async def complete_transfer(request: CompleteTransferRequest) -> SuccessResponse
 @app.get("/transfers")
 async def list_transfers(room_name: str | None = None, limit: int = 50) -> TransferListResponse:
     try:
-        rows = persistence.list_transfers(room_name=room_name, limit=limit)
+        # Offload blocking database query
+        rows = await asyncio.to_thread(persistence.list_transfers, room_name=room_name, limit=limit)
         return TransferListResponse(transfers=[TransferRecord(**r) for r in rows])
     except Exception as e:
         logger.error(f"Error listing transfers: {e}")
@@ -609,7 +617,7 @@ async def list_transfers(room_name: str | None = None, limit: int = 50) -> Trans
 
 @app.get("/transfers/{transfer_id}")
 async def get_transfer(transfer_id: str) -> TransferRecord:
-    rec = persistence.get_transfer(transfer_id)
+    rec = await asyncio.to_thread(persistence.get_transfer, transfer_id)
     if not rec:
         raise HTTPException(status_code=404, detail="Transfer not found")
     return TransferRecord(**rec)
