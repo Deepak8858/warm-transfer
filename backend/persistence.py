@@ -51,7 +51,7 @@ def create_transfer_record(room_name: str, agent_a: str, summary: str, call_cont
     return rec_id
 
 def list_transfers(room_name: Optional[str] = None, limit: int = 100) -> List[Dict[str, Any]]:
-    q = "SELECT id, room_name, agent_a, agent_b, summary, call_context, created_at FROM transfer_summaries"
+    q = "SELECT id, room_name, agent_a, agent_b, summary, created_at FROM transfer_summaries"
     params: list[Any] = []
     if room_name:
         q += " WHERE room_name = ?"
@@ -60,7 +60,7 @@ def list_transfers(room_name: Optional[str] = None, limit: int = 100) -> List[Di
     params.append(limit)
     with _LOCK, _connect() as conn:
         rows = conn.execute(q, params).fetchall()
-    keys = ["id","room_name","agent_a","agent_b","summary","call_context","created_at"]
+    keys = ["id","room_name","agent_a","agent_b","summary","created_at"]
     return [dict(zip(keys, r)) for r in rows]
 
 def get_transfer(rec_id: str) -> Optional[Dict[str, Any]]:
