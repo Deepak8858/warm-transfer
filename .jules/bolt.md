@@ -1,0 +1,3 @@
+## 2024-05-22 - Backend SQLite Listing Query Optimization
+**Learning:** Exposing heavy columns like `call_context` in list endpoints (like `list_transfers`) without pagination or when the field is unused in the UI creates an unnecessary performance bottleneck due to database read overhead and API payload bloat. The manual key mapping in `backend/persistence.py` means any SQL query change requires a synchronized change to the `keys` list mapping.
+**Action:** When creating or optimizing list queries that map to Pydantic models with optional fields, exclude heavy text columns (like full call transcripts/contexts) from the SELECT statement. Always ensure the `keys` mapping matches the `SELECT` columns exactly to avoid dictionary zipping bugs.
