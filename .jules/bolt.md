@@ -1,0 +1,3 @@
+## 2024-05-24 - Exclude Heavy Columns from List API Queries
+**Learning:** Pydantic models with `Optional` types that don't have a default value will fail to instantiate if the database query excludes those columns. In this app's architecture, heavy text columns (like `call_context` in `transfer_summaries`) can be excluded from list queries (`list_transfers`) to save memory and JSON payload sizes without breaking detail views (`get_transfer`), provided the corresponding Pydantic field (`call_context: str | None = None`) properly handles its absence.
+**Action:** When optimizing list endpoints by trimming database SELECT queries, always verify that the serialization models (e.g., Pydantic) specify default values (`= None`) for the excluded fields.

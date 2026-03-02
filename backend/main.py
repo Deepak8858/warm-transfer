@@ -285,7 +285,7 @@ class TransferRecord(BaseModel):
     agent_a: str
     agent_b: str | None
     summary: str
-    call_context: str | None
+    call_context: str | None = None
     created_at: float
 
 class TransferListResponse(BaseModel):
