@@ -7,6 +7,7 @@ import os
 import logging
 import time
 import asyncio
+from functools import partial
 from groq import Groq
 from livekit import api
 from contextlib import asynccontextmanager
@@ -485,11 +486,15 @@ async def initiate_transfer(request: TransferRequest) -> TransferResponse:
                 "... (Configure GROQ_API_KEY for real AI summary)"
             )
             logger.info("Returning mock summary (Groq not configured or forced)")
-            rec_id = persistence.create_transfer_record(
-                room_name=request.room_name or "unknown",
-                agent_a=request.agent_a_identity or "unknown",
-                summary=summary,
-                call_context=request.call_context
+            # Offload blocking SQLite insert to a thread
+            rec_id = await asyncio.to_thread(
+                partial(
+                    persistence.create_transfer_record,
+                    room_name=request.room_name or "unknown",
+                    agent_a=request.agent_a_identity or "unknown",
+                    summary=summary,
+                    call_context=request.call_context
+                )
             )
             return TransferResponse(
                 summary=summary,
@@ -525,11 +530,15 @@ async def initiate_transfer(request: TransferRequest) -> TransferResponse:
             )
             summary = chat_completion.choices[0].message.content
             logger.info("Generated Groq summary for transfer")
-            rec_id = persistence.create_transfer_record(
-                room_name=request.room_name or "unknown",
-                agent_a=request.agent_a_identity or "unknown",
-                summary=summary,
-                call_context=request.call_context
+            # Offload blocking SQLite insert to a thread
+            rec_id = await asyncio.to_thread(
+                partial(
+                    persistence.create_transfer_record,
+                    room_name=request.room_name or "unknown",
+                    agent_a=request.agent_a_identity or "unknown",
+                    summary=summary,
+                    call_context=request.call_context
+                )
             )
             return TransferResponse(
                 summary=summary,
@@ -544,11 +553,15 @@ async def initiate_transfer(request: TransferRequest) -> TransferResponse:
                 "Mock Summary (fallback due to Groq error): "
                 f"{request.call_context[:120]}"[:120] + "..."
             )
-            rec_id = persistence.create_transfer_record(
-                room_name=request.room_name or "unknown",
-                agent_a=request.agent_a_identity or "unknown",
-                summary=fallback,
-                call_context=request.call_context
+            # Offload blocking SQLite insert to a thread
+            rec_id = await asyncio.to_thread(
+                partial(
+                    persistence.create_transfer_record,
+                    room_name=request.room_name or "unknown",
+                    agent_a=request.agent_a_identity or "unknown",
+                    summary=fallback,
+                    call_context=request.call_context
+                )
             )
             return TransferResponse(summary=fallback, id=rec_id, room_name=request.room_name, agent_a_identity=request.agent_a_identity)
     except Exception as e:
@@ -577,7 +590,14 @@ async def complete_transfer(request: CompleteTransferRequest) -> SuccessResponse
             # Optionally update agent_b for persisted record
             if request.transfer_id:
                 try:
-                    updated = persistence.set_agent_b(request.transfer_id, request.agent_b_identity)
+                    # Offload blocking SQLite update to a thread
+                    updated = await asyncio.to_thread(
+                        partial(
+                            persistence.set_agent_b,
+                            rec_id=request.transfer_id,
+                            agent_b=request.agent_b_identity
+                        )
+                    )
                     if updated:
                         logger.info(f"Updated transfer {request.transfer_id} with agent_b {request.agent_b_identity}")
                 except Exception as e:
@@ -601,7 +621,8 @@ async def complete_transfer(request: CompleteTransferRequest) -> SuccessResponse
 @app.get("/transfers")
 async def list_transfers(room_name: str | None = None, limit: int = 50) -> TransferListResponse:
     try:
-        rows = persistence.list_transfers(room_name=room_name, limit=limit)
+        # Offload blocking SQLite select to a thread
+        rows = await asyncio.to_thread(partial(persistence.list_transfers, room_name=room_name, limit=limit))
         return TransferListResponse(transfers=[TransferRecord(**r) for r in rows])
     except Exception as e:
         logger.error(f"Error listing transfers: {e}")
@@ -609,7 +630,8 @@ async def list_transfers(room_name: str | None = None, limit: int = 50) -> Trans
 
 @app.get("/transfers/{transfer_id}")
 async def get_transfer(transfer_id: str) -> TransferRecord:
-    rec = persistence.get_transfer(transfer_id)
+    # Offload blocking SQLite select to a thread
+    rec = await asyncio.to_thread(partial(persistence.get_transfer, rec_id=transfer_id))
     if not rec:
         raise HTTPException(status_code=404, detail="Transfer not found")
     return TransferRecord(**rec)

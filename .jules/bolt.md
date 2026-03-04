@@ -1,0 +1,3 @@
+## 2024-05-24 - [Avoid blocking the FastAPI event loop with synchronous SQLite calls]
+**Learning:** This codebase uses standard `sqlite3` which can block the async event loop, reducing throughput. However, trying to optimize list endpoints by dropping fields (like `call_context`) that are present in Pydantic response models causes validation errors and breaks existing client expectations.
+**Action:** Always wrap `sqlite3` or other blocking persistence calls in `await asyncio.to_thread()` (using `functools.partial` for kwargs). Avoid prematurely dropping columns from select queries if they are mapped tightly to a strict Pydantic model response.
