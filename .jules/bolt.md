@@ -1,0 +1,3 @@
+## 2024-05-24 - Blocking SQLite Calls in FastAPI
+**Learning:** The `backend/persistence.py` module uses a global `threading.Lock` to serialize database access. Calling these synchronous persistence methods (`create_transfer_record`, `set_agent_b`, `list_transfers`, `get_transfer`) directly within FastAPI's `async def` endpoints blocks the event loop, causing severe latency and pausing streaming responses across concurrent requests.
+**Action:** Always wrap direct SQLite persistence calls (or any synchronous I/O and lock acquisition) in `backend/main.py` with `await asyncio.to_thread(...)` to offload them to a separate thread pool and prevent blocking the FastAPI event loop.
