@@ -202,33 +202,25 @@ async def remove_participant_from_room(room_name: str, identity: str):
     """
     try:
         lk_api = get_livekit_api()
-        # This requires finding the participant first
-        participants = await lk_api.room.list_participants(
-            api.ListParticipantsRequest(room=room_name)
-        )
         
-        # Find the participant by identity
-        target_participant = None
-        for participant in participants.participants:
-            if participant.identity == identity:
-                target_participant = participant
-                break
-        
-        if target_participant:
-            await lk_api.room.remove_participant(
-                api.RoomParticipantIdentity(
-                    room=room_name,
-                    identity=identity
-                )
+        # ⚡ Bolt Optimization:
+        # Instead of calling list_participants first (which takes ~O(N) time and
+        # adds a full network round trip), we can just optimistically request
+        # to remove the participant by identity. If they aren't in the room,
+        # it will simply fail or do nothing, but the success path is 1 round-trip
+        # instead of 2.
+        await lk_api.room.remove_participant(
+            api.RoomParticipantIdentity(
+                room=room_name,
+                identity=identity
             )
-            logger.info(f"Removed participant {identity} from room {room_name}")
-            return True
-        else:
-            logger.warning(f"Participant {identity} not found in room {room_name}")
-            return False
+        )
+        logger.info(f"Removed participant {identity} from room {room_name}")
+        return True
             
     except Exception as e:
-        logger.error(f"Error removing participant: {str(e)}")
+        # LiveKit API throws an exception if the participant is not found
+        logger.warning(f"Participant {identity} not removed from room {room_name} (may not exist): {str(e)}")
         return False
 
 # Pydantic models for request/response

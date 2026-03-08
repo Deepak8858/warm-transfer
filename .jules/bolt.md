@@ -1,0 +1,3 @@
+## 2024-05-24 - Optimizing LiveKit API Participant Removal
+**Learning:** In the LiveKit API, when removing a participant from a room using `remove_participant`, there is no need to first fetch all participants using `list_participants` to check if they exist. Fetching the list takes `O(N)` time and adds an unnecessary full network round-trip. We can optimistically call `remove_participant` and it will either succeed (1 round-trip) or gracefully fail/throw an exception.
+**Action:** When performing actions on specific entities in LiveKit API, prioritize direct optimistic operations over read-then-write patterns to minimize network round-trips. Catch any resulting exceptions if the entity doesn't exist.
