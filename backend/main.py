@@ -202,33 +202,22 @@ async def remove_participant_from_room(room_name: str, identity: str):
     """
     try:
         lk_api = get_livekit_api()
-        # This requires finding the participant first
-        participants = await lk_api.room.list_participants(
-            api.ListParticipantsRequest(room=room_name)
-        )
-        
-        # Find the participant by identity
-        target_participant = None
-        for participant in participants.participants:
-            if participant.identity == identity:
-                target_participant = participant
-                break
-        
-        if target_participant:
-            await lk_api.room.remove_participant(
-                api.RoomParticipantIdentity(
-                    room=room_name,
-                    identity=identity
-                )
+        # ⚡ Bolt Optimization:
+        # Instead of making a network request to list all participants (O(N) network+compute),
+        # we can directly request to remove the participant by identity.
+        # This eliminates 1 network round trip and speeds up transfer completion.
+        await lk_api.room.remove_participant(
+            api.RoomParticipantIdentity(
+                room=room_name,
+                identity=identity
             )
-            logger.info(f"Removed participant {identity} from room {room_name}")
-            return True
-        else:
-            logger.warning(f"Participant {identity} not found in room {room_name}")
-            return False
+        )
+        logger.info(f"Removed participant {identity} from room {room_name}")
+        return True
             
     except Exception as e:
         logger.error(f"Error removing participant: {str(e)}")
+        # LiveKit SDK throws if participant/room is not found
         return False
 
 # Pydantic models for request/response
