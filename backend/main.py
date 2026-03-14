@@ -7,7 +7,7 @@ import os
 import logging
 import time
 import asyncio
-from groq import Groq
+from groq import Groq, AsyncGroq
 from livekit import api
 from contextlib import asynccontextmanager
 try:
@@ -124,7 +124,7 @@ LIVEKIT_URL = os.getenv("LIVEKIT_URL")
 GROQ_API_KEY = os.getenv("GROQ_API_KEY")
 
 # Initialize clients
-groq_client = None  # Will be initialized when needed
+async_groq_client = None
 livekit_api = None  # Will be initialized when needed
 tts_lock = asyncio.Lock()  # Serialize pyttsx3 calls
 
@@ -314,10 +314,10 @@ async def ai_voice(req: VoiceRequest):
         if not GROQ_API_KEY or os.getenv("FORCE_MOCK_GROQ") == "1":
             reply = f"You said: {req.prompt}"
         else:
-            global groq_client
-            if groq_client is None:
-                groq_client = Groq(api_key=GROQ_API_KEY)
-            chat_completion = groq_client.chat.completions.create(
+            global async_groq_client
+            if async_groq_client is None:
+                async_groq_client = AsyncGroq(api_key=GROQ_API_KEY)
+            chat_completion = await async_groq_client.chat.completions.create(
                 messages=[
                     {"role": "system", "content": "You are a helpful realtime voice assistant."},
                     {"role": "user", "content": req.prompt},
@@ -485,11 +485,12 @@ async def initiate_transfer(request: TransferRequest) -> TransferResponse:
                 "... (Configure GROQ_API_KEY for real AI summary)"
             )
             logger.info("Returning mock summary (Groq not configured or forced)")
-            rec_id = persistence.create_transfer_record(
-                room_name=request.room_name or "unknown",
-                agent_a=request.agent_a_identity or "unknown",
-                summary=summary,
-                call_context=request.call_context
+            rec_id = await asyncio.to_thread(
+                persistence.create_transfer_record,
+                request.room_name or "unknown",
+                request.agent_a_identity or "unknown",
+                summary,
+                request.call_context
             )
             return TransferResponse(
                 summary=summary,
@@ -500,12 +501,12 @@ async def initiate_transfer(request: TransferRequest) -> TransferResponse:
             )
 
         # Attempt real Groq call
-        global groq_client
-        if groq_client is None:
-            groq_client = Groq(api_key=GROQ_API_KEY)
+        global async_groq_client
+        if async_groq_client is None:
+            async_groq_client = AsyncGroq(api_key=GROQ_API_KEY)
 
         try:
-            chat_completion = groq_client.chat.completions.create(
+            chat_completion = await async_groq_client.chat.completions.create(
                 messages=[
                     {
                         "role": "system",
@@ -525,11 +526,12 @@ async def initiate_transfer(request: TransferRequest) -> TransferResponse:
             )
             summary = chat_completion.choices[0].message.content
             logger.info("Generated Groq summary for transfer")
-            rec_id = persistence.create_transfer_record(
-                room_name=request.room_name or "unknown",
-                agent_a=request.agent_a_identity or "unknown",
-                summary=summary,
-                call_context=request.call_context
+            rec_id = await asyncio.to_thread(
+                persistence.create_transfer_record,
+                request.room_name or "unknown",
+                request.agent_a_identity or "unknown",
+                summary,
+                request.call_context
             )
             return TransferResponse(
                 summary=summary,
@@ -544,11 +546,12 @@ async def initiate_transfer(request: TransferRequest) -> TransferResponse:
                 "Mock Summary (fallback due to Groq error): "
                 f"{request.call_context[:120]}"[:120] + "..."
             )
-            rec_id = persistence.create_transfer_record(
-                room_name=request.room_name or "unknown",
-                agent_a=request.agent_a_identity or "unknown",
-                summary=fallback,
-                call_context=request.call_context
+            rec_id = await asyncio.to_thread(
+                persistence.create_transfer_record,
+                request.room_name or "unknown",
+                request.agent_a_identity or "unknown",
+                fallback,
+                request.call_context
             )
             return TransferResponse(summary=fallback, id=rec_id, room_name=request.room_name, agent_a_identity=request.agent_a_identity)
     except Exception as e:
@@ -577,7 +580,11 @@ async def complete_transfer(request: CompleteTransferRequest) -> SuccessResponse
             # Optionally update agent_b for persisted record
             if request.transfer_id:
                 try:
-                    updated = persistence.set_agent_b(request.transfer_id, request.agent_b_identity)
+                    updated = await asyncio.to_thread(
+                        persistence.set_agent_b,
+                        request.transfer_id,
+                        request.agent_b_identity
+                    )
                     if updated:
                         logger.info(f"Updated transfer {request.transfer_id} with agent_b {request.agent_b_identity}")
                 except Exception as e:
@@ -601,7 +608,11 @@ async def complete_transfer(request: CompleteTransferRequest) -> SuccessResponse
 @app.get("/transfers")
 async def list_transfers(room_name: str | None = None, limit: int = 50) -> TransferListResponse:
     try:
-        rows = persistence.list_transfers(room_name=room_name, limit=limit)
+        rows = await asyncio.to_thread(
+            persistence.list_transfers,
+            room_name=room_name,
+            limit=limit
+        )
         return TransferListResponse(transfers=[TransferRecord(**r) for r in rows])
     except Exception as e:
         logger.error(f"Error listing transfers: {e}")
@@ -609,7 +620,7 @@ async def list_transfers(room_name: str | None = None, limit: int = 50) -> Trans
 
 @app.get("/transfers/{transfer_id}")
 async def get_transfer(transfer_id: str) -> TransferRecord:
-    rec = persistence.get_transfer(transfer_id)
+    rec = await asyncio.to_thread(persistence.get_transfer, transfer_id)
     if not rec:
         raise HTTPException(status_code=404, detail="Transfer not found")
     return TransferRecord(**rec)
