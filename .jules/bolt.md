@@ -1,0 +1,3 @@
+## 2024-05-24 - SQLite operations blocking FastAPI Event Loop
+**Learning:** In a FastAPI server, writing synchronous logic (like accessing `sqlite3` without an async wrapper) within an `async def` route handler completely blocks the asyncio event loop. Even if the logic takes merely a few milliseconds, under moderate concurrency, this serializes all incoming requests, severely degrading throughput. `backend/main.py` contained multiple routes invoking synchronous functions from `backend/persistence.py`.
+**Action:** Use `await asyncio.to_thread()` to offload short but synchronous IO-bound blocking functions (like local database reads and writes) when inside `async def` endpoints, so that the main event loop remains free to process other concurrent connections.
