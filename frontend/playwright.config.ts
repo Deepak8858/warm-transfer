@@ -15,7 +15,7 @@ export default defineConfig({
   },
   webServer: [
     {
-      command: 'pwsh -NoProfile -Command "$env:ENABLE_AGENT_MOCK=\'0\'; $env:FORCE_MOCK_GROQ=\'1\'; .\\venv\\Scripts\\python -m uvicorn main:app --host 127.0.0.1 --port 8000"',
+      command: 'LIVEKIT_API_KEY=test_key LIVEKIT_API_SECRET=test_secret LIVEKIT_URL=wss://example.com ENABLE_AGENT_MOCK=1 FORCE_MOCK_GROQ=1 python -m uvicorn main:app --host 127.0.0.1 --port 8000',
       port: 8000,
       reuseExistingServer: true,
       timeout: 60_000,
