@@ -1,0 +1,3 @@
+## 2025-02-14 - Thread offloading for Persistence Operations
+**Learning:** The FastAPI backend relies on `sqlite3` wrapped by a global `threading.Lock` (`_LOCK`) for `persistence.py` calls. Calling these functions synchronously within the `async def` endpoints (`/initiate-transfer`, `/complete-transfer`, `/transfers`, `/transfers/{transfer_id}`) blocks the single FastAPI event loop thread, completely stalling concurrent requests processing.
+**Action:** Use `await asyncio.to_thread(...)` to offload these blocking, synchronous IO-bound calls to a separate thread pool. This allows the FastAPI event loop to remain non-blocked and continue handling concurrent requests efficiently.
