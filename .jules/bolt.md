@@ -1,0 +1,3 @@
+## 2024-04-09 - Using synchronous API clients in FastAPI async endpoints blocks the event loop
+**Learning:** The application uses the synchronous `Groq` client inside FastAPI endpoints (`/ai-voice` and `/initiate-transfer`) that are declared as `async def`. While FastAPI can handle synchronous endpoints efficiently by running them in a threadpool, synchronous code *inside* an `async def` function blocks the main event loop, pausing all other concurrent requests.
+**Action:** Always use the asynchronous equivalent (`AsyncGroq`) and `await` network calls inside `async def` routes to prevent blocking the event loop and maintain server concurrency.
