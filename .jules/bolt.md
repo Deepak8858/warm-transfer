@@ -1,0 +1,3 @@
+## 2025-04-10 - Asynchronous Database Persistence Operations
+**Learning:** In `backend/main.py`, database persistence operations using `persistence` module methods (`create_transfer_record`, `set_agent_b`, `list_transfers`, `get_transfer`) are synchronous and execute on the main thread. This blocks the FastAPI event loop, especially with SQLite locks.
+**Action:** Always offload synchronous disk and database calls in FastAPI asynchronous endpoints to separate threads using `asyncio.to_thread` to ensure event loop responsiveness, as successfully proven in the test `backend/tests/verify_blocking.py`.
