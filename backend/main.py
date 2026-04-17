@@ -466,8 +466,9 @@ async def initiate_transfer(request: TransferRequest) -> TransferResponse:
         # Determine briefing room name (private room for Agent A <-> Agent B)
         briefing_room_name: str | None = None
         if request.room_name:
-            import random, string
-            suffix = ''.join(random.choices(string.ascii_lowercase + string.digits, k=4))
+            import secrets, string
+            alphabet = string.ascii_lowercase + string.digits
+            suffix = ''.join(secrets.choice(alphabet) for _ in range(4))
             briefing_room_name = f"{request.room_name}-brief-{suffix}"
 
         # Try to create briefing room (best effort)
