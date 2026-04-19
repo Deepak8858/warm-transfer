@@ -7,7 +7,7 @@ import os
 import logging
 import time
 import asyncio
-from groq import Groq
+from groq import AsyncGroq
 from livekit import api
 from contextlib import asynccontextmanager
 try:
@@ -316,8 +316,9 @@ async def ai_voice(req: VoiceRequest):
         else:
             global groq_client
             if groq_client is None:
-                groq_client = Groq(api_key=GROQ_API_KEY)
-            chat_completion = groq_client.chat.completions.create(
+                groq_client = AsyncGroq(api_key=GROQ_API_KEY)
+            # ⚡ Bolt: Using AsyncGroq to prevent blocking the FastAPI event loop during network calls
+            chat_completion = await groq_client.chat.completions.create(
                 messages=[
                     {"role": "system", "content": "You are a helpful realtime voice assistant."},
                     {"role": "user", "content": req.prompt},
@@ -502,10 +503,11 @@ async def initiate_transfer(request: TransferRequest) -> TransferResponse:
         # Attempt real Groq call
         global groq_client
         if groq_client is None:
-            groq_client = Groq(api_key=GROQ_API_KEY)
+            groq_client = AsyncGroq(api_key=GROQ_API_KEY)
 
         try:
-            chat_completion = groq_client.chat.completions.create(
+            # ⚡ Bolt: Using AsyncGroq to prevent blocking the FastAPI event loop during network calls
+            chat_completion = await groq_client.chat.completions.create(
                 messages=[
                     {
                         "role": "system",
