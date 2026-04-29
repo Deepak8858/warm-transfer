@@ -1,0 +1,3 @@
+## 2024-05-15 - Synchronous SQLite persistence blocking FastAPI event loop
+**Learning:** Synchronous database operations, such as those performed via standard SQLite libraries without async drivers, block the FastAPI event loop entirely. Benchmarking confirms that synchronous persistence operations (like `create_transfer_record`, `get_transfer`) halt the event loop, resulting in dropped concurrent tasks (e.g., 0 heartbeats detected), whereas offloading them to `asyncio.to_thread` maintains responsiveness.
+**Action:** Always offload direct SQLite persistence calls in FastAPI `async def` endpoints to separate threads using `await asyncio.to_thread(func, *args, **kwargs)` to prevent event loop blocking.
